@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="LLM Model Vetter - Test WebLLM models across devices" />
+    <title>LLM Model Vetter</title>
+    <style>
+      :root {
+        --bg-primary: #1a1a2e;
+        --bg-secondary: #16213e;
+        --bg-tertiary: #0f3460;
+        --text-primary: #eee;
+        --text-secondary: #aaa;
+        --accent: #e94560;
+        --accent-light: #ff6b6b;
+        --success: #4ade80;
+        --warning: #fbbf24;
+        --error: #ef4444;
+        --border: #334155;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-height: 100vh;
+        line-height: 1.6;
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      header {
+        text-align: center;
+        padding: 20px 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 20px;
+      }
+
+      header h1 {
+        font-size: 1.8rem;
+        margin-bottom: 8px;
+      }
+
+      header p {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      /* Status Banner */
+      #status-banner {
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      #status-banner.success {
+        background: rgba(74, 222, 128, 0.1);
+        border: 1px solid var(--success);
+      }
+
+      #status-banner.error {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid var(--error);
+      }
+
+      #status-banner.warning {
+        background: rgba(251, 191, 36, 0.1);
+        border: 1px solid var(--warning);
+      }
+
+      .status-icon {
+        font-size: 1.2rem;
+      }
+
+      /* Device Info Card */
+      .card {
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border);
+      }
+
+      .card h2 {
+        font-size: 1.1rem;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+      }
+
+      .info-item {
+        background: var(--bg-tertiary);
+        padding: 10px;
+        border-radius: 6px;
+      }
+
+      .info-item label {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+
+      .info-item span {
+        font-weight: 500;
+      }
+
+      /* Model Selector */
+      .model-selector {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+      }
+
+      .form-group {
+        flex: 1;
+        min-width: 200px;
+      }
+
+      .form-group label {
+        display: block;
+        font-size: 0.85rem;
+        margin-bottom: 6px;
+        color: var(--text-secondary);
+      }
+
+      select, input, textarea {
+        width: 100%;
+        padding: 10px 12px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--text-primary);
+        font-size: 0.95rem;
+      }
+
+      select:focus, input:focus, textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      button {
+        padding: 10px 24px;
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.95rem;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+
+      button:hover:not(:disabled) {
+        background: var(--accent-light);
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      button.secondary {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+      }
+
+      button.secondary:hover:not(:disabled) {
+        background: var(--border);
+      }
+
+      /* Progress Bar */
+      .progress-container {
+        margin-top: 16px;
+        display: none;
+      }
+
+      .progress-container.visible {
+        display: block;
+      }
+
+      .progress-bar {
+        height: 8px;
+        background: var(--bg-tertiary);
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 8px;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: var(--accent);
+        transition: width 0.3s ease;
+        width: 0%;
+      }
+
+      .progress-text {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+
+      /* Chat Area */
+      .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: 400px;
+      }
+
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+        background: var(--bg-tertiary);
+        border-radius: 8px;
+        margin-bottom: 12px;
+      }
+
+      .message {
+        margin-bottom: 16px;
+        padding: 12px;
+        border-radius: 8px;
+        max-width: 85%;
+      }
+
+      .message.user {
+        background: var(--accent);
+        margin-left: auto;
+      }
+
+      .message.assistant {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+      }
+
+      .message.system {
+        background: transparent;
+        border: 1px dashed var(--border);
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        max-width: 100%;
+        text-align: center;
+      }
+
+      .message-role {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        opacity: 0.7;
+        margin-bottom: 4px;
+      }
+
+      .chat-input {
+        display: flex;
+        gap: 10px;
+      }
+
+      .chat-input textarea {
+        flex: 1;
+        resize: none;
+        min-height: 50px;
+      }
+
+      /* Metrics */
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .metric {
+        background: var(--bg-tertiary);
+        padding: 12px;
+        border-radius: 8px;
+        text-align: center;
+      }
+
+      .metric-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+
+      .metric-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        margin-top: 4px;
+      }
+
+      /* Tier Badges */
+      .tier-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+
+      .tier-badge.mobile {
+        background: var(--success);
+        color: #000;
+      }
+
+      .tier-badge.medium {
+        background: var(--warning);
+        color: #000;
+      }
+
+      .tier-badge.heavy {
+        background: var(--error);
+        color: #fff;
+      }
+
+      /* Responsive */
+      @media (max-width: 600px) {
+        .container {
+          padding: 12px;
+        }
+
+        .chat-container {
+          height: 350px;
+        }
+
+        .model-selector {
+          flex-direction: column;
+        }
+
+        .form-group {
+          width: 100%;
+        }
+      }
+
+      /* Loading Spinner */
+      .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid var(--text-secondary);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      /* Model Info Tooltip */
+      .model-info {
+        margin-top: 8px;
+        padding: 10px;
+        background: var(--bg-tertiary);
+        border-radius: 6px;
+        font-size: 0.85rem;
+      }
+
+      .model-info p {
+        margin-bottom: 4px;
+      }
+
+      .model-info .notes {
+        color: var(--text-secondary);
+        font-style: italic;
+      }
+
+      /* Markdown Styles in Chat */
+      .message-content {
+        line-height: 1.6;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+      }
+
+      .message-content p {
+        margin: 0 0 0.75em 0;
+      }
+
+      .message-content p:last-child {
+        margin-bottom: 0;
+      }
+
+      .message-content h1, .message-content h2, .message-content h3,
+      .message-content h4, .message-content h5, .message-content h6 {
+        margin: 1em 0 0.5em 0;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+
+      .message-content h1:first-child, .message-content h2:first-child,
+      .message-content h3:first-child {
+        margin-top: 0;
+      }
+
+      .message-content h1 { font-size: 1.4em; }
+      .message-content h2 { font-size: 1.25em; }
+      .message-content h3 { font-size: 1.1em; }
+
+      .message-content code {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 0.2em 0.4em;
+        border-radius: 4px;
+        font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+        font-size: 0.9em;
+      }
+
+      .message-content pre {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 12px;
+        border-radius: 6px;
+        overflow-x: auto;
+        margin: 0.75em 0;
+      }
+
+      .message-content pre code {
+        background: none;
+        padding: 0;
+        font-size: 0.85em;
+        line-height: 1.5;
+      }
+
+      .message-content ul, .message-content ol {
+        margin: 0.5em 0;
+        padding-left: 1.5em;
+      }
+
+      .message-content li {
+        margin: 0.25em 0;
+      }
+
+      .message-content blockquote {
+        margin: 0.75em 0;
+        padding: 0.5em 1em;
+        border-left: 3px solid var(--accent);
+        background: rgba(0, 0, 0, 0.1);
+        border-radius: 0 4px 4px 0;
+      }
+
+      .message-content blockquote p {
+        margin: 0;
+      }
+
+      .message-content a {
+        color: var(--accent);
+        text-decoration: underline;
+      }
+
+      .message-content a:hover {
+        opacity: 0.8;
+      }
+
+      .message-content table {
+        border-collapse: collapse;
+        margin: 0.75em 0;
+        width: 100%;
+        font-size: 0.9em;
+      }
+
+      .message-content th, .message-content td {
+        border: 1px solid var(--border);
+        padding: 8px;
+        text-align: left;
+      }
+
+      .message-content th {
+        background: rgba(0, 0, 0, 0.2);
+        font-weight: 600;
+      }
+
+      .message-content hr {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 1em 0;
+      }
+
+      .message-content img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 4px;
+      }
+
+      .message-content strong {
+        font-weight: 600;
+      }
+
+      .message-content em {
+        font-style: italic;
+      }
+
+      /* User message specific overrides */
+      .message.user .message-content code {
+        background: rgba(255, 255, 255, 0.15);
+      }
+
+      .message.user .message-content pre {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .message.user .message-content blockquote {
+        background: rgba(255, 255, 255, 0.1);
+      }
+    </style>
+    <script type="module" crossorigin src="/llm-model-vetter/assets/index-C8umsqmi.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>🧪 LLM Model Vetter</h1>
+        <p>Test WebLLM models across devices and browsers</p>
+      </header>
+
+      <!-- Status Banner -->
+      <div id="status-banner" class="success">
+        <span class="status-icon">⏳</span>
+        <span id="status-text">Checking WebGPU support...</span>
+      </div>
+
+      <!-- Device Info -->
+      <div class="card">
+        <h2>📱 Device Information</h2>
+        <div class="info-grid" id="device-info">
+          <div class="info-item">
+            <label>Browser</label>
+            <span id="info-browser">-</span>
+          </div>
+          <div class="info-item">
+            <label>Platform</label>
+            <span id="info-platform">-</span>
+          </div>
+          <div class="info-item">
+            <label>Device Type</label>
+            <span id="info-device-type">-</span>
+          </div>
+          <div class="info-item">
+            <label>WebGPU</label>
+            <span id="info-webgpu">-</span>
+          </div>
+          <div class="info-item">
+            <label>GPU</label>
+            <span id="info-gpu">-</span>
+          </div>
+          <div class="info-item">
+            <label>Recommended Tier</label>
+            <span id="info-tier">-</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Model Selection -->
+      <div class="card">
+        <h2>🤖 Model Selection</h2>
+        <div class="model-selector">
+          <div class="form-group">
+            <label for="tier-filter">Filter by Tier</label>
+            <select id="tier-filter">
+              <option value="all">All Tiers</option>
+              <option value="mobile">Mobile (&lt; 1GB)</option>
+              <option value="medium">Medium (1-3GB)</option>
+              <option value="heavy">Heavy (4-8GB)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="model-select">Select Model</label>
+            <select id="model-select">
+              <option value="">Choose a model...</option>
+            </select>
+          </div>
+          <button id="load-btn" disabled>Load Model</button>
+        </div>
+
+        <div id="model-info" class="model-info" style="display: none;">
+          <p><strong id="model-name">-</strong> <span id="model-tier-badge" class="tier-badge">-</span></p>
+          <p>Provider: <span id="model-provider">-</span> | Size: <span id="model-size">-</span> | VRAM: <span id="model-vram">-</span></p>
+          <p class="notes" id="model-notes">-</p>
+        </div>
+
+        <div id="progress-container" class="progress-container">
+          <div class="progress-bar">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+          <p id="progress-text" class="progress-text">Preparing...</p>
+        </div>
+      </div>
+
+      <!-- Chat Interface -->
+      <div class="card">
+        <h2>💬 Chat Test</h2>
+        <div class="chat-container">
+          <div id="messages" class="messages">
+            <div class="message system">
+              <div class="message-content">Load a model to start chatting</div>
+            </div>
+          </div>
+          <div class="chat-input">
+            <textarea id="user-input" placeholder="Type a message..." disabled></textarea>
+            <button id="send-btn" disabled>Send</button>
+            <button id="abort-btn" class="secondary" style="display: none;">Stop</button>
+          </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div id="metrics" class="metrics" style="display: none;">
+          <div class="metric">
+            <div class="metric-value" id="metric-load-time">-</div>
+            <div class="metric-label">Load Time</div>
+          </div>
+          <div class="metric">
+            <div class="metric-value" id="metric-tokens">-</div>
+            <div class="metric-label">Tokens</div>
+          </div>
+          <div class="metric">
+            <div class="metric-value" id="metric-speed">-</div>
+            <div class="metric-label">Tok/sec</div>
+          </div>
+          <div class="metric">
+            <div class="metric-value" id="metric-time">-</div>
+            <div class="metric-label">Response Time</div>
+          </div>
+        </div>
+      </div>
+
+      <footer style="text-align: center; padding: 20px; color: var(--text-secondary); font-size: 0.85rem;">
+        <p>Built with <a href="https://webllm.mlc.ai" style="color: var(--accent);">WebLLM</a> | 
+        <a href="https://github.com/user/llm-model-vetter" style="color: var(--accent);">GitHub</a></p>
+      </footer>
+    </div>
+
+  </body>
+</html>
