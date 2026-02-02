@@ -11,11 +11,7 @@ import { SimpleLLMClient } from './core/webllm-client';
 import type { ChatMessage, CompletionStats, LoadProgress } from './core/api-types';
 import {
   getDeviceInfo,
-  getGPUCapabilities,
-  checkBrowserCompatibility,
-  formatGPUInfo,
   parseWebGPUError,
-  type CompatibilityResult,
 } from './utils/webgpu-detect';
 import {
   VETTING_MODELS,
@@ -92,8 +88,8 @@ async function init(): Promise<void> {
     );
   }
   
-  // Check WebGPU support
-  await checkEnvironment();
+  // Update device info display (without async GPU detection)
+  updateDeviceInfoDisplay();
   
   // Setup event listeners
   setupEventListeners();
@@ -101,76 +97,33 @@ async function init(): Promise<void> {
   // Populate model dropdown
   populateModelSelect(ui, VETTING_MODELS);
   
+  // Show ready status - let users try loading models
+  updateStatus(ui, 'success', 'Ready! Select a model to get started.', '✅');
+  addSystemMessage(ui, 'Select a model and click "Load Model" to begin. If you encounter any issues, troubleshooting steps will be displayed.');
+  
   console.log('[App] Initialized');
 }
 
 /**
- * Check WebGPU environment and update UI
- * Now uses async detection and allows users to try even if detection is uncertain
+ * Update device info display without async GPU detection
+ * This is now a synchronous operation that doesn't block initialization
  */
-async function checkEnvironment(): Promise<void> {
+function updateDeviceInfoDisplay(): void {
   const deviceInfo = getDeviceInfo();
-  const compatibility = await checkBrowserCompatibility();
-  const gpuCapabilities = await getGPUCapabilities();
   
-  // Update device info display
+  // Update device info display with basic information
   updateDeviceInfo(ui, {
     browser: `${deviceInfo.browserName} ${deviceInfo.browserVersion}`,
     platform: deviceInfo.platform,
     deviceType: deviceInfo.isMobile ? 'Mobile' : deviceInfo.isTablet ? 'Tablet' : 'Desktop',
-    webgpu: gpuCapabilities.supported 
-      ? '✅ Supported' 
-      : gpuCapabilities.uncertain 
-        ? '⚠️ Uncertain' 
-        : '❌ Not Detected',
-    gpu: formatGPUInfo(gpuCapabilities),
+    webgpu: deviceInfo.hasWebGPU ? '✅ API Present' : '❌ Not Detected',
+    gpu: deviceInfo.hasWebGPU ? 'Will be detected during model load' : 'WebGPU API not found',
     tier: deviceInfo.estimatedTier.charAt(0).toUpperCase() + deviceInfo.estimatedTier.slice(1),
   });
   
-  // Update status banner based on compatibility
-  if (compatibility.compatible) {
-    updateStatus(ui, 'success', compatibility.message, '✅');
-    
-    // Pre-select recommended tier
-    ui.tierFilter.value = deviceInfo.estimatedTier === 'unknown' ? 'all' : deviceInfo.estimatedTier;
-    filterModels(ui.tierFilter.value as ModelTier | 'all');
-  } else if (compatibility.allowAttempt) {
-    // Detection uncertain - show warning but allow user to try
-    updateStatus(ui, 'warning', `${compatibility.message}`, '⚠️');
-    
-    // Show troubleshooting info in the chat area
-    if (compatibility.troubleshooting) {
-      showTroubleshootingInfo(
-        ui,
-        compatibility.message,
-        compatibility.recommendation || 'You can still try loading a model.',
-        compatibility.troubleshooting
-      );
-    } else {
-      addSystemMessage(ui, `${compatibility.recommendation || 'You can still try loading a model.'}`);
-    }
-    
-    // Still allow model loading - user can try anyway!
-    ui.tierFilter.value = 'mobile'; // Default to smaller models
-    filterModels(ModelTier.MOBILE);
-    
-    console.log('[App] WebGPU detection uncertain, allowing user to try anyway');
-  } else {
-    // Hard failure - browser definitely doesn't support WebGPU
-    updateStatus(ui, 'error', `${compatibility.message} ${compatibility.recommendation || ''}`, '❌');
-    
-    if (compatibility.troubleshooting) {
-      showTroubleshootingInfo(
-        ui,
-        compatibility.message,
-        compatibility.recommendation || 'Please use a supported browser.',
-        compatibility.troubleshooting
-      );
-    }
-    
-    setLoadButtonState(ui, 'disabled');
-    setChatEnabled(ui, false);
-  }
+  // Pre-select recommended tier based on device type
+  ui.tierFilter.value = deviceInfo.estimatedTier === 'unknown' ? 'all' : deviceInfo.estimatedTier;
+  filterModels(ui.tierFilter.value as ModelTier | 'all');
 }
 
 /**
