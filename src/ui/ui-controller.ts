@@ -348,3 +348,93 @@ export function formatTime(ms: number): string {
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   return `${(ms / 60000).toFixed(1)}m`;
 }
+
+/**
+ * Show troubleshooting information in the chat area
+ */
+export function showTroubleshootingInfo(
+  elements: UIElements,
+  title: string,
+  recommendation: string,
+  steps: string[]
+): void {
+  const troubleshootDiv = document.createElement('div');
+  troubleshootDiv.className = 'message system troubleshooting';
+  
+  let stepsHtml = steps.map((step, i) => `<li>${escapeHtml(step)}</li>`).join('');
+  
+  troubleshootDiv.innerHTML = `
+    <div class="message-content">
+      <strong>⚠️ ${escapeHtml(title)}</strong><br>
+      <p>💡 ${escapeHtml(recommendation)}</p>
+      <details>
+        <summary>Troubleshooting steps</summary>
+        <ol>${stepsHtml}</ol>
+      </details>
+    </div>
+  `;
+  
+  elements.messages.appendChild(troubleshootDiv);
+  elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+/**
+ * Show a detailed error message with troubleshooting
+ */
+export function showErrorWithTroubleshooting(
+  elements: UIElements,
+  errorMessage: string,
+  recommendation: string,
+  troubleshooting: string[]
+): void {
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'message system error-details';
+  
+  let stepsHtml = troubleshooting.map((step, i) => `<li>${escapeHtml(step)}</li>`).join('');
+  
+  errorDiv.innerHTML = `
+    <div class="message-content error-content">
+      <strong>❌ ${escapeHtml(errorMessage)}</strong>
+      <p class="recommendation">💡 ${escapeHtml(recommendation)}</p>
+      <details open>
+        <summary>How to fix this</summary>
+        <ol class="troubleshooting-steps">${stepsHtml}</ol>
+      </details>
+    </div>
+  `;
+  
+  elements.messages.appendChild(errorDiv);
+  elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+/**
+ * Update status with optional "try anyway" button
+ */
+export function updateStatusWithAction(
+  elements: UIElements,
+  type: 'success' | 'error' | 'warning',
+  message: string,
+  icon?: string,
+  actionText?: string,
+  onAction?: () => void
+): void {
+  elements.statusBanner.className = `${type}`;
+  elements.statusBanner.querySelector('.status-icon')!.textContent = icon || 
+    (type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️');
+  elements.statusText.textContent = message;
+  
+  // Remove any existing action button
+  const existingBtn = elements.statusBanner.querySelector('.status-action-btn');
+  if (existingBtn) {
+    existingBtn.remove();
+  }
+  
+  // Add action button if provided
+  if (actionText && onAction) {
+    const actionBtn = document.createElement('button');
+    actionBtn.className = 'status-action-btn';
+    actionBtn.textContent = actionText;
+    actionBtn.onclick = onAction;
+    elements.statusBanner.appendChild(actionBtn);
+  }
+}

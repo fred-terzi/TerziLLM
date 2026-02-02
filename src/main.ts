@@ -2,6 +2,11 @@
  * Main Application Entry Point
  * Orchestrates the model vetter UI and WebLLM integration
  */
+
+// Apply polyfills FIRST before any other imports
+import { applyPolyfills, getBrowserCompatibilitySummary } from './utils/polyfills';
+applyPolyfills();
+
 import { SimpleLLMClient } from './core/webllm-client';
 import type { ChatMessage, CompletionStats, LoadProgress } from './core/api-types';
 import {
@@ -9,6 +14,8 @@ import {
   getGPUCapabilities,
   checkBrowserCompatibility,
   formatGPUInfo,
+  parseWebGPUError,
+  type CompatibilityResult,
 } from './utils/webgpu-detect';
 import {
   VETTING_MODELS,
@@ -33,6 +40,8 @@ import {
   setGenerating,
   updateMetrics,
   setLoadButtonState,
+  showTroubleshootingInfo,
+  showErrorWithTroubleshooting,
   type UIElements,
 } from './ui/ui-controller';
 
@@ -63,8 +72,25 @@ let ui: UIElements;
 async function init(): Promise<void> {
   console.log('[App] Initializing...');
   
+  // Check for critical browser features first
+  const browserCheck = getBrowserCompatibilitySummary();
+  if (!browserCheck.allCriticalFeaturesAvailable) {
+    console.error('[App] Missing critical browser features:', browserCheck.missingCritical);
+    console.log('[App] Recommendations:', browserCheck.recommendations);
+  }
+  
   // Get UI elements
   ui = getUIElements();
+  
+  // Show browser feature warnings if any critical features are missing
+  if (!browserCheck.allCriticalFeaturesAvailable) {
+    showTroubleshootingInfo(
+      ui,
+      'Missing Browser Features',
+      `Your browser is missing: ${browserCheck.missingCritical.join(', ')}`,
+      browserCheck.recommendations
+    );
+  }
   
   // Check WebGPU support
   await checkEnvironment();
@@ -80,10 +106,11 @@ async function init(): Promise<void> {
 
 /**
  * Check WebGPU environment and update UI
+ * Now uses async detection and allows users to try even if detection is uncertain
  */
 async function checkEnvironment(): Promise<void> {
   const deviceInfo = getDeviceInfo();
-  const compatibility = checkBrowserCompatibility();
+  const compatibility = await checkBrowserCompatibility();
   const gpuCapabilities = await getGPUCapabilities();
   
   // Update device info display
@@ -91,20 +118,56 @@ async function checkEnvironment(): Promise<void> {
     browser: `${deviceInfo.browserName} ${deviceInfo.browserVersion}`,
     platform: deviceInfo.platform,
     deviceType: deviceInfo.isMobile ? 'Mobile' : deviceInfo.isTablet ? 'Tablet' : 'Desktop',
-    webgpu: deviceInfo.hasWebGPU ? '✅ Supported' : '❌ Not Supported',
+    webgpu: gpuCapabilities.supported 
+      ? '✅ Supported' 
+      : gpuCapabilities.uncertain 
+        ? '⚠️ Uncertain' 
+        : '❌ Not Detected',
     gpu: formatGPUInfo(gpuCapabilities),
     tier: deviceInfo.estimatedTier.charAt(0).toUpperCase() + deviceInfo.estimatedTier.slice(1),
   });
   
-  // Update status banner
+  // Update status banner based on compatibility
   if (compatibility.compatible) {
     updateStatus(ui, 'success', compatibility.message, '✅');
     
     // Pre-select recommended tier
     ui.tierFilter.value = deviceInfo.estimatedTier === 'unknown' ? 'all' : deviceInfo.estimatedTier;
     filterModels(ui.tierFilter.value as ModelTier | 'all');
+  } else if (compatibility.allowAttempt) {
+    // Detection uncertain - show warning but allow user to try
+    updateStatus(ui, 'warning', `${compatibility.message}`, '⚠️');
+    
+    // Show troubleshooting info in the chat area
+    if (compatibility.troubleshooting) {
+      showTroubleshootingInfo(
+        ui,
+        compatibility.message,
+        compatibility.recommendation || 'You can still try loading a model.',
+        compatibility.troubleshooting
+      );
+    } else {
+      addSystemMessage(ui, `${compatibility.recommendation || 'You can still try loading a model.'}`);
+    }
+    
+    // Still allow model loading - user can try anyway!
+    ui.tierFilter.value = 'mobile'; // Default to smaller models
+    filterModels(ModelTier.MOBILE);
+    
+    console.log('[App] WebGPU detection uncertain, allowing user to try anyway');
   } else {
+    // Hard failure - browser definitely doesn't support WebGPU
     updateStatus(ui, 'error', `${compatibility.message} ${compatibility.recommendation || ''}`, '❌');
+    
+    if (compatibility.troubleshooting) {
+      showTroubleshootingInfo(
+        ui,
+        compatibility.message,
+        compatibility.recommendation || 'Please use a supported browser.',
+        compatibility.troubleshooting
+      );
+    }
+    
     setLoadButtonState(ui, 'disabled');
     setChatEnabled(ui, false);
   }
@@ -213,9 +276,20 @@ async function loadModel(modelId: string): Promise<void> {
     console.error('[App] Failed to load model:', error);
     showProgress(ui, false);
     setLoadButtonState(ui, 'ready');
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    updateStatus(ui, 'error', `Failed to load model: ${errorMsg}`, '❌');
-    addSystemMessage(ui, `Error: ${errorMsg}`);
+    
+    // Parse the error and get user-friendly troubleshooting
+    const parsedError = parseWebGPUError(error instanceof Error ? error : new Error(String(error)));
+    
+    updateStatus(ui, 'error', parsedError.message, '❌');
+    
+    // Show detailed troubleshooting in the chat area
+    showErrorWithTroubleshooting(
+      ui,
+      parsedError.message,
+      parsedError.recommendation,
+      parsedError.troubleshooting
+    );
+    
   } finally {
     state.isLoading = false;
   }

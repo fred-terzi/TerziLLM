@@ -1,17 +1,38 @@
 /**
  * Unit tests for WebGPU Detection utilities
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   hasWebGPU,
   getGPUCapabilities,
   getDeviceInfo,
   checkBrowserCompatibility,
   formatGPUInfo,
+  verifyWebGPUWorks,
+  parseWebGPUError,
+  formatWebGPUError,
   type GPUCapabilities,
+  type WebGPUError,
 } from '../../src/utils/webgpu-detect';
 
 describe('WebGPU Detection', () => {
+  // Store original GPU to restore after tests that modify it
+  let originalGpu: GPU | undefined;
+  
+  beforeEach(() => {
+    originalGpu = navigator.gpu;
+  });
+  
+  afterEach(() => {
+    // Restore navigator.gpu after tests that delete or modify it
+    if (originalGpu) {
+      Object.defineProperty(navigator, 'gpu', {
+        value: originalGpu,
+        writable: true,
+        configurable: true,
+      });
+    }
+  });
   describe('hasWebGPU', () => {
     it('should return true when navigator.gpu exists', () => {
       expect(hasWebGPU()).toBe(true);
@@ -36,27 +57,24 @@ describe('WebGPU Detection', () => {
     });
 
     it('should return supported: false when no adapter is found', async () => {
-      const originalRequestAdapter = navigator.gpu.requestAdapter;
-      vi.mocked(navigator.gpu.requestAdapter).mockResolvedValueOnce(null);
+      // Mock requestAdapter to return null for both power preferences
+      vi.mocked(navigator.gpu.requestAdapter)
+        .mockResolvedValueOnce(null)  // high-performance
+        .mockResolvedValueOnce(null); // low-power fallback
       
       const capabilities = await getGPUCapabilities();
       expect(capabilities.supported).toBe(false);
-      expect(capabilities.errorMessage).toContain('No GPU adapter found');
-      
-      navigator.gpu.requestAdapter = originalRequestAdapter;
+      expect(capabilities.uncertain).toBe(true); // API exists but no adapter
+      expect(capabilities.errorMessage).toContain('No GPU adapter');
     });
 
     it('should return supported: false when WebGPU is not available', async () => {
-      const originalGpu = navigator.gpu;
       // @ts-ignore
       delete navigator.gpu;
       
       const capabilities = await getGPUCapabilities();
       expect(capabilities.supported).toBe(false);
-      expect(capabilities.errorMessage).toContain('not supported');
-      
-      // @ts-ignore
-      navigator.gpu = originalGpu;
+      expect(capabilities.errorMessage).toContain('not available');
     });
 
     it('should handle errors gracefully', async () => {
@@ -155,22 +173,57 @@ describe('WebGPU Detection', () => {
   });
 
   describe('checkBrowserCompatibility', () => {
-    it('should return compatible for supported browsers', () => {
-      const result = checkBrowserCompatibility();
+    it('should return compatible for supported browsers', async () => {
+      const result = await checkBrowserCompatibility();
       expect(result.compatible).toBe(true);
+      expect(result.allowAttempt).toBe(true);
     });
 
-    it('should return not compatible when WebGPU is missing', () => {
-      const originalGpu = navigator.gpu;
+    it('should allow attempt when WebGPU is uncertain', async () => {
+      // Mock requestAdapter to return null (uncertain state)
+      vi.mocked(navigator.gpu.requestAdapter)
+        .mockResolvedValueOnce(null)  // high-performance
+        .mockResolvedValueOnce(null); // low-power fallback
+      
+      const result = await checkBrowserCompatibility();
+      // Should still allow user to try
+      expect(result.allowAttempt).toBe(true);
+    });
+
+    it('should return not compatible when WebGPU is missing', async () => {
       // @ts-ignore
       delete navigator.gpu;
       
-      const result = checkBrowserCompatibility();
+      const result = await checkBrowserCompatibility();
       expect(result.compatible).toBe(false);
+      // Still allow attempt for browsers that might work
       expect(result.recommendation).toBeDefined();
+    });
+  });
+
+  describe('verifyWebGPUWorks', () => {
+    it('should return works: true when adapter is available', async () => {
+      const result = await verifyWebGPUWorks();
+      expect(result.works).toBe(true);
+      expect(result.adapter).toBeDefined();
+    });
+
+    it('should return works: false when no adapter', async () => {
+      vi.mocked(navigator.gpu.requestAdapter)
+        .mockResolvedValueOnce(null)  // high-performance
+        .mockResolvedValueOnce(null); // low-power fallback
       
-      // @ts-ignore
-      navigator.gpu = originalGpu;
+      const result = await verifyWebGPUWorks();
+      expect(result.works).toBe(false);
+      expect(result.adapter).toBeNull();
+    });
+
+    it('should handle requestAdapter errors', async () => {
+      vi.mocked(navigator.gpu.requestAdapter).mockRejectedValueOnce(new Error('GPU error'));
+      
+      const result = await verifyWebGPUWorks();
+      expect(result.works).toBe(false);
+      expect(result.error).toBe('GPU error');
     });
   });
 
@@ -193,7 +246,7 @@ describe('WebGPU Detection', () => {
     });
 
     it('should handle unsupported GPU', () => {
-      const capabilities = {
+      const capabilities: GPUCapabilities = {
         supported: false,
         errorMessage: 'WebGPU not available',
       };
@@ -202,13 +255,116 @@ describe('WebGPU Detection', () => {
       expect(formatted).toBe('WebGPU not available');
     });
 
+    it('should handle uncertain detection state', () => {
+      const capabilities: GPUCapabilities = {
+        supported: false,
+        uncertain: true,
+        errorMessage: 'No adapter found',
+      };
+      
+      const formatted = formatGPUInfo(capabilities);
+      expect(formatted).toContain('uncertain');
+      expect(formatted).toContain('No adapter found');
+    });
+
     it('should handle missing adapter info', () => {
-      const capabilities = {
+      const capabilities: GPUCapabilities = {
         supported: true,
       };
       
       const formatted = formatGPUInfo(capabilities);
       expect(formatted).toContain('no details');
+    });
+  });
+
+  describe('parseWebGPUError', () => {
+    it('should parse out of memory errors', () => {
+      const error = new Error('Out of memory allocating buffer');
+      const parsed = parseWebGPUError(error);
+      
+      expect(parsed.code).toBe('OUT_OF_MEMORY');
+      expect(parsed.recommendation).toContain('smaller model');
+      expect(parsed.troubleshooting.length).toBeGreaterThan(0);
+    });
+
+    it('should parse adapter lost errors', () => {
+      const error = new Error('GPU device lost during operation');
+      const parsed = parseWebGPUError(error);
+      
+      expect(parsed.code).toBe('ADAPTER_LOST');
+      expect(parsed.recommendation).toContain('Refresh');
+    });
+
+    it('should parse no adapter errors', () => {
+      const error = new Error('requestAdapter returned null');
+      const parsed = parseWebGPUError(error);
+      
+      expect(parsed.code).toBe('NO_ADAPTER');
+      expect(parsed.troubleshooting.some(s => s.includes('Safari') || s.includes('Chrome'))).toBe(true);
+    });
+
+    it('should parse webgpu not supported errors', () => {
+      const error = new Error('WebGPU is not supported in this browser');
+      const parsed = parseWebGPUError(error);
+      
+      expect(parsed.code).toBe('NO_WEBGPU');
+      expect(parsed.troubleshooting.some(s => s.includes('121'))).toBe(true);
+    });
+
+    it('should handle unknown errors gracefully', () => {
+      const error = new Error('Something unexpected happened');
+      const parsed = parseWebGPUError(error);
+      
+      expect(parsed.code).toBe('UNKNOWN');
+      expect(parsed.message).toBe('Something unexpected happened');
+      expect(parsed.troubleshooting.length).toBeGreaterThan(0);
+    });
+
+    it('should handle string errors', () => {
+      const parsed = parseWebGPUError('Memory allocation failed');
+      expect(parsed.code).toBe('OUT_OF_MEMORY');
+    });
+
+    it('should parse API errors like crypto.randomUUID is not a function', () => {
+      const error = new Error('crypto.randomUUID is not a function');
+      const parsed = parseWebGPUError(error);
+      
+      expect(parsed.code).toBe('API_ERROR');
+      expect(parsed.recommendation).toContain('refresh');
+      expect(parsed.troubleshooting.some(s => s.toLowerCase().includes('refresh'))).toBe(true);
+    });
+
+    it('should parse undefined function errors', () => {
+      const error = new Error('undefined is not a function');
+      const parsed = parseWebGPUError(error);
+      
+      expect(parsed.code).toBe('API_ERROR');
+    });
+
+    it('should parse "is not defined" errors', () => {
+      const error = new Error('someAPI is not defined');
+      const parsed = parseWebGPUError(error);
+      
+      expect(parsed.code).toBe('API_ERROR');
+    });
+  });
+
+  describe('formatWebGPUError', () => {
+    it('should format error with all sections', () => {
+      const error: WebGPUError = {
+        code: 'OUT_OF_MEMORY',
+        message: 'GPU ran out of memory',
+        recommendation: 'Try a smaller model',
+        troubleshooting: ['Close tabs', 'Restart browser'],
+      };
+      
+      const formatted = formatWebGPUError(error);
+      expect(formatted).toContain('❌');
+      expect(formatted).toContain('GPU ran out of memory');
+      expect(formatted).toContain('💡');
+      expect(formatted).toContain('Try a smaller model');
+      expect(formatted).toContain('Close tabs');
+      expect(formatted).toContain('Restart browser');
     });
   });
 });

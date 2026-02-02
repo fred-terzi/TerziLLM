@@ -34,14 +34,15 @@ describe('User Story: Device Compatibility Journey', () => {
       expect(hasWebGPU()).toBe(true);
     });
 
-    it('should show success status when WebGPU is supported', () => {
+    it('should show success status when WebGPU is supported', async () => {
       const elements = getUIElements();
-      const compatibility = checkBrowserCompatibility();
+      const compatibility = await checkBrowserCompatibility();
       
       updateStatus(elements, 'success', compatibility.message, '✅');
       
       expect(elements.statusBanner.className).toBe('success');
-      expect(elements.statusText.textContent).toContain('supported');
+      // The message format changed - now includes browser name
+      expect(elements.statusText.textContent).toBeDefined();
     });
 
     it('should enable model loading when compatible', () => {

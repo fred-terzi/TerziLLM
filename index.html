@@ -521,6 +521,81 @@
       .message.user .message-content blockquote {
         background: rgba(255, 255, 255, 0.1);
       }
+
+      /* Troubleshooting & Error Messages */
+      .message.troubleshooting,
+      .message.error-details {
+        background: rgba(251, 191, 36, 0.1);
+        border: 1px solid var(--warning);
+        max-width: 100%;
+        text-align: left;
+      }
+
+      .message.error-details {
+        background: rgba(239, 68, 68, 0.1);
+        border-color: var(--error);
+      }
+
+      .message.troubleshooting .message-content,
+      .message.error-details .message-content {
+        font-size: 0.9rem;
+      }
+
+      .message.troubleshooting details,
+      .message.error-details details {
+        margin-top: 10px;
+      }
+
+      .message.troubleshooting summary,
+      .message.error-details summary {
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        margin-bottom: 8px;
+      }
+
+      .message.troubleshooting summary:hover,
+      .message.error-details summary:hover {
+        color: var(--text-primary);
+      }
+
+      .message.troubleshooting ol,
+      .message.error-details ol {
+        margin: 8px 0 0 0;
+        padding-left: 1.5em;
+      }
+
+      .message.troubleshooting li,
+      .message.error-details li {
+        margin: 6px 0;
+        line-height: 1.5;
+      }
+
+      .troubleshooting-steps li {
+        color: var(--text-secondary);
+      }
+
+      .recommendation {
+        margin: 8px 0;
+        color: var(--text-primary);
+      }
+
+      .error-content strong {
+        color: var(--error);
+      }
+
+      /* Status action button */
+      .status-action-btn {
+        padding: 6px 14px;
+        font-size: 0.85rem;
+        background: var(--bg-tertiary);
+        border: 1px solid currentColor;
+        margin-left: auto;
+      }
+
+      .status-action-btn:hover {
+        background: var(--bg-secondary);
+      }
     </style>
   </head>
   <body>
