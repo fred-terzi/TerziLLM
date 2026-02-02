@@ -99,7 +99,7 @@ async function init(): Promise<void> {
   
   // Show ready status - let users try loading models
   updateStatus(ui, 'success', 'Ready! Select a model to get started.', '✅');
-  addSystemMessage(ui, 'Select a model and click "Load Model" to begin. If you encounter any issues, troubleshooting steps will be displayed.');
+  addSystemMessage(ui, 'Choose a model from the "Model Selection" section below and click "Load Model" to begin. If you encounter any issues, troubleshooting steps will be displayed.');
   
   console.log('[App] Initialized');
 }
