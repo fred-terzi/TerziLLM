@@ -16,7 +16,7 @@ import {
   WebLLMError,
   createMessage,
   generateMessageId,
-} from "./webllm";
+} from "./WebLLM-manager";
 import type {
   ChatMessage,
   GenerationOptions,

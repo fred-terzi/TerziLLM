@@ -6,10 +6,10 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { act } from "@testing-library/react";
+import { act } from "react-dom/test-utils";
 
 import { useAppStore } from "./state";
-import { WebLLMHandler, createMessage } from "./webllm";
+import { WebLLMHandler, createMessage } from "./WebLLM-manager";
 import type { ChatMessage, CompletionResult } from "./types";
 import type { Conversation } from "./state.types";
 

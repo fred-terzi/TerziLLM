@@ -14,7 +14,7 @@ export {
   WebLLMError,
   createMessage,
   generateMessageId,
-} from "./webllm";
+} from "./WebLLM-manager";
 
 // State Management - Zustand store for app state
 export {

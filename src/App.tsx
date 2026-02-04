@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import './App.css';
-import { createWebLLMHandler, createMessage } from './core/webllm';
+import { createWebLLMHandler, createMessage } from './core/WebLLM-manager';
 
 function App() {
 
