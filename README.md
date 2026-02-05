@@ -1,9 +1,22 @@
-# WebLLM Study
+# TerziLLM
 
+Terzi LLM is meant to be a frictionless entry into local, self owned AI. 
+
+## Technical Overview
+
+## Configuration 1: Desktop/Laptop & Mobile Interface
+- 
 A Progressive Web App for local LLM inference using WebLLM. The application supports two deployment modes:
 
 - **Host Mode**: A desktop/laptop with GPU that loads the model and performs inference
 - **Mobile Mode**: A lightweight PWA that connects to a host machine for inference
+
+## Configuration 2: Server with Mobile Interface
+
+A server-hosted application that performs inference on the server and serves a mobile-optimized frontend. This is a more traditional architecture that still allows users to self-host but offloads all computation to the server. It will use the same PWA codebase for ease of development and maintenance.
+
+The target server provider is Vultr, which offers affordable GPU instances that can run the WebLLM engine. Vultr's marketplace also allows for easy deployment of pre-configured images, which can simplify the setup process for users who want to host their own LLM server. They have a Vultr WebApp that can run containerized applications, which could be an ideal way to deploy the server component of TerziLLM.
+
 
 ## Features
 
