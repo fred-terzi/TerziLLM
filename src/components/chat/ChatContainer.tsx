@@ -3,15 +3,17 @@
  * Contains the header, message list, and input area
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Menu, Settings, Loader2 } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { WelcomeScreen } from './WelcomeScreen';
 import { ModelLoadingOverlay } from './ModelLoadingOverlay';
 import { useAppStore } from '../../store';
+import { useChat } from '../../hooks/useChat';
 import { cn } from '../../lib/utils';
-import type { Message } from '../../types';
+import type { Message as StoreMessage } from '../../types';
+import type { UIMessage } from '@ai-sdk/react';
 
 export function ChatContainer() {
   const {
@@ -21,58 +23,95 @@ export function ChatContainer() {
     loadProgress,
     loadProgressText,
     isMobile,
+    inferenceMode,
     toggleSidebar,
     setSettingsOpen,
     addMessage,
   } = useAppStore();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+
+  // Convert stored messages to UI messages for the chat hook
+  const initialMessages: UIMessage[] = storedMessages.map((msg) => ({
+    id: msg.id,
+    role: msg.role,
+    parts: [{ type: 'text' as const, text: msg.content }],
+  }));
+
+  // Use the integrated chat hook with worker bridge
+  const {
+    messages: chatMessages,
+    input,
+    setInput,
+    handleSubmit,
+    isLoading,
+    error,
+    workerStatus,
+  } = useChat({
+    inferenceMode,
+    initialMessages,
+    conversationId: currentConversationId || undefined,
+    onFinish: async (message) => {
+      // Persist assistant message to store
+      // Extract text content from parts
+      const content = message.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => (part as { type: 'text'; text: string }).text)
+        .join('');
+      
+      await addMessage({
+        conversationId: currentConversationId || '',
+        role: message.role as 'assistant',
+        content,
+      });
+    },
+    onError: (err) => {
+      console.error('Chat error:', err);
+    },
+  });
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [storedMessages]);
+  }, [chatMessages]);
 
-  // Display messages from store
-  const displayMessages: Message[] = storedMessages;
-
-  const handleSendMessage = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    
-    if (!input.trim() || isLoading) return;
-    
-    const userMessage = input.trim();
-    setInput('');
-    setError(null);
-    
-    try {
-      // Add user message to store
-      await addMessage({
-        conversationId: currentConversationId || '',
-        role: 'user',
-        content: userMessage,
-      });
-      
-      setIsLoading(true);
-      
-      // Placeholder response - in production this would use the LLM worker
-      setTimeout(async () => {
-        await addMessage({
+  // Sync chat messages to store (for user messages)
+  useEffect(() => {
+    const lastMessage = chatMessages[chatMessages.length - 1];
+    if (lastMessage && lastMessage.role === 'user') {
+      const isAlreadyInStore = storedMessages.some((msg) => msg.id === lastMessage.id);
+      if (!isAlreadyInStore) {
+        // Extract text content from parts
+        const content = lastMessage.parts
+          .filter((part) => part.type === 'text')
+          .map((part) => (part as { type: 'text'; text: string }).text)
+          .join('');
+        
+        void addMessage({
           conversationId: currentConversationId || '',
-          role: 'assistant',
-          content: 'I am TerziLLM, your local AI assistant. To enable AI responses, please load a model from the Settings panel (gear icon in the top right).',
+          role: 'user',
+          content,
         });
-        setIsLoading(false);
-      }, 500);
-      
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to send message'));
-      setIsLoading(false);
+      }
     }
-  };
+  }, [chatMessages, storedMessages, currentConversationId, addMessage]);
+
+  // Convert UI messages back to store format for display
+  const displayMessages: StoreMessage[] = chatMessages.map((msg) => {
+    // Extract text content from parts
+    const content = msg.parts
+      .filter((part) => part.type === 'text')
+      .map((part) => (part as { type: 'text'; text: string }).text)
+      .join('');
+    
+    return {
+      id: msg.id || `msg-${Date.now()}`,
+      conversationId: currentConversationId || '',
+      role: msg.role as 'user' | 'assistant' | 'system',
+      content,
+      createdAt: new Date(),
+    };
+  });
 
   const showWelcome = !currentConversationId && displayMessages.length === 0;
   const isModelLoading = modelStatus === 'loading';
@@ -163,6 +202,15 @@ export function ChatContainer() {
         </div>
       )}
 
+      {/* Worker error display */}
+      {workerStatus?.hasError && (
+        <div className="px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-t border-yellow-200 dark:border-yellow-800">
+          <p className="text-sm text-yellow-600 dark:text-yellow-400">
+            Worker status: {workerStatus.status}. Please try reloading the model.
+          </p>
+        </div>
+      )}
+
       {/* Input area */}
       <div className={cn(
         "border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4",
@@ -172,15 +220,15 @@ export function ChatContainer() {
           <ChatInput
             value={input}
             onChange={setInput}
-            onSubmit={handleSendMessage}
+            onSubmit={handleSubmit}
             isLoading={isLoading}
-            disabled={false}
+            disabled={inferenceMode === 'local' && modelStatus !== 'ready'}
             placeholder={
               modelStatus === 'ready'
                 ? 'Send a message...'
                 : modelStatus === 'loading'
                   ? 'Loading model...'
-                  : 'Send a message (load a model for AI responses)'
+                  : 'Load a model from Settings to start chatting'
             }
           />
         </div>
