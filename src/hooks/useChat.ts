@@ -85,7 +85,18 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         }
 
         // Local inference mode
-        const messages = options.messages as unknown as Message[];
+        const messages = options.messages.map((m) => {
+          // Extract text content from parts
+          const content = m.parts
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { type: 'text'; text: string }).text)
+            .join('');
+          
+          return {
+            role: m.role as 'user' | 'assistant' | 'system',
+            content,
+          };
+        }) as Message[];
 
         // Get the bridge instance
         const bridge = workerBridge.getBridge();
@@ -100,13 +111,18 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           );
         }
 
-        // Start chat with worker bridge
-        const stream = await bridge.chat(messages, chatConfig);
+        try {
+          // Start chat with worker bridge
+          const stream = await bridge.chat(messages, chatConfig);
 
-        // Return the stream (already a ReadableStream)
-        // The worker bridge returns a ReadableStream<Uint8Array> with SSE format
-        // We need to return it directly as the AI SDK will parse it
-        return stream as unknown as ReadableStream<never>;
+          // Return the stream (already a ReadableStream)
+          // The worker bridge returns a ReadableStream<Uint8Array> with SSE format
+          // We need to return it directly as the AI SDK will parse it
+          return stream as unknown as ReadableStream<never>;
+        } catch (error) {
+          console.error('Chat transport error:', error);
+          throw error;
+        }
       },
       
       async reconnectToStream() {

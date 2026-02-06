@@ -7,6 +7,7 @@ import { useAppStore } from '../../store';
 import { ModelSelector } from './ModelSelector';
 import { cn } from '../../lib/utils';
 import { useWorkerBridge } from '../../hooks/useWorkerBridge';
+import { useEffect } from 'react';
 
 export function SettingsModal() {
   const {
@@ -21,6 +22,29 @@ export function SettingsModal() {
   } = useAppStore();
 
   const workerBridge = useWorkerBridge();
+
+  // Sync worker status with store
+  useEffect(() => {
+    if (workerBridge.status === 'idle') {
+      setModelStatus('idle');
+    } else if (workerBridge.status === 'loading') {
+      setModelStatus('loading');
+    } else if (workerBridge.status === 'ready') {
+      setModelStatus('ready');
+    } else if (workerBridge.status === 'error') {
+      setModelStatus('error');
+    }
+  }, [workerBridge.status, setModelStatus]);
+
+  // Sync init progress with store
+  useEffect(() => {
+    if (workerBridge.initProgress) {
+      setLoadProgress(
+        workerBridge.initProgress.progress,
+        workerBridge.initProgress.text
+      );
+    }
+  }, [workerBridge.initProgress, setLoadProgress]);
 
   if (!settingsOpen) {
     return null;
@@ -59,19 +83,13 @@ export function SettingsModal() {
               Model Selection
             </h3>
             <ModelSelector
-              onModelLoad={(modelId) => {
-                setModelStatus('loading');
-                setLoadProgress(0, 'Starting...');
-                
-                workerBridge.initialize(modelId)
-                  .then(() => {
-                    setModelStatus('ready');
-                    setLoadProgress(1, 'Model loaded');
-                  })
-                  .catch((error) => {
-                    setModelStatus('error');
-                    console.error('Failed to load model:', error);
-                  });
+              onModelLoad={async (modelId) => {
+                try {
+                  await workerBridge.initialize(modelId);
+                  // Status is synced via useEffect
+                } catch (error) {
+                  console.error('Failed to load model:', error);
+                }
               }}
             />
           </section>
