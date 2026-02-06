@@ -1,35 +1,56 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+/**
+ * TerziLLM - Main Application Component
+ * A Progressive Web App for local LLM inference using WebLLM
+ */
+
+import { useEffect } from 'react';
+import { Sidebar } from './components/sidebar';
+import { ChatContainer } from './components/chat';
+import { SettingsModal } from './components/settings';
+import { useAppStore } from './store';
+import { cn } from './lib/utils';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const {
+    sidebarOpen,
+    isMobile,
+    setIsMobile,
+    loadConversations,
+  } = useAppStore();
+
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
+  // Handle responsive layout
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, [setIsMobile]);
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div className="h-screen w-screen flex overflow-hidden bg-gray-100 dark:bg-gray-950">
+      {/* Sidebar */}
+      <Sidebar />
+
+      {/* Main content */}
+      <main className={cn(
+        "flex-1 flex flex-col overflow-hidden",
+        !sidebarOpen && !isMobile && "ml-0"
+      )}>
+        <ChatContainer />
+      </main>
+
+      {/* Settings modal */}
+      <SettingsModal />
+    </div>
+  );
 }
 
-export default App
+export default App;
