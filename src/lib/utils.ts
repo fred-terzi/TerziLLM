@@ -80,7 +80,7 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 export function extractTitle(content: string, maxLength: number = 40): string {
   // Remove markdown formatting
   const plainText = content
-    .replace(/[#*`_~\[\]]/g, '')
+    .replace(/[#*`_~[\]]/g, '')
     .replace(/\n/g, ' ')
     .trim();
   

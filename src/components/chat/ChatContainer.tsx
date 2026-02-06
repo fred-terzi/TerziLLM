@@ -97,7 +97,7 @@ export function ChatContainer() {
   }, [chatMessages, storedMessages, currentConversationId, addMessage]);
 
   // Convert UI messages back to store format for display
-  const displayMessages: StoreMessage[] = chatMessages.map((msg) => {
+  const displayMessages: StoreMessage[] = chatMessages.map((msg, index) => {
     // Extract text content from parts
     const content = msg.parts
       .filter((part) => part.type === 'text')
@@ -105,7 +105,7 @@ export function ChatContainer() {
       .join('');
     
     return {
-      id: msg.id || `msg-${Date.now()}`,
+      id: msg.id || `msg-${index}`,
       conversationId: currentConversationId || '',
       role: msg.role as 'user' | 'assistant' | 'system',
       content,
