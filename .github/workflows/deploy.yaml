@@ -32,7 +32,7 @@ jobs:
         run: npm ci
 
       - name: Run all checks
-        run: npm build
+        run: npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
