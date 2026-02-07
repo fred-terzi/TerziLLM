@@ -5,6 +5,7 @@
 import { useEffect } from 'react'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
+import { ErrorDisplay } from '../error/ErrorDisplay'
 import { useAppChat } from '../../hooks/useAppChat'
 import { useAppStore } from '../../store/app-store'
 
@@ -65,6 +66,9 @@ export function ChatContainer() {
         streamingContent={streamingContent}
         isLoading={isLoading}
       />
+
+      {/* Error display */}
+      <ErrorDisplay />
 
       {/* Input */}
       <ChatInput
