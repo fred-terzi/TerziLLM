@@ -28,14 +28,14 @@ class MockLLMWorker {
   }
 
   /** Dispatch a message to all listeners (simulates worker → main) */
-  private dispatch(data: WorkerMessageFromWorker) {
+  protected dispatch(data: WorkerMessageFromWorker) {
     for (const handler of this.handlers) {
       handler(new MessageEvent('message', { data }))
     }
   }
 
   /** Process messages like the real worker would */
-  private handleMessage(msg: WorkerMessageToWorker) {
+  protected handleMessage(msg: WorkerMessageToWorker) {
     switch (msg.type) {
       case 'init':
         this.dispatch({ type: 'init-progress', progress: 0.5, text: 'Loading...' })
@@ -62,27 +62,16 @@ class MockLLMWorker {
 }
 
 class FailingMockWorker extends MockLLMWorker {
-  private handleMessage(msg: WorkerMessageToWorker) {
-    const handlers = (this as any).handlers as ((e: MessageEvent) => void)[]
-    const dispatch = (data: WorkerMessageFromWorker) => {
-      for (const handler of handlers) {
-        handler(new MessageEvent('message', { data }))
-      }
-    }
-
+  protected override handleMessage(msg: WorkerMessageToWorker) {
     switch (msg.type) {
       case 'init':
-        dispatch({ type: 'error', error: 'WebGPU is not supported', code: 'WEBGPU_NOT_SUPPORTED' })
-        dispatch({ type: 'init-complete', success: false })
+        this.dispatch({ type: 'error', error: 'WebGPU is not supported', code: 'WEBGPU_NOT_SUPPORTED' })
+        this.dispatch({ type: 'init-complete', success: false })
         break
       case 'chat':
-        dispatch({ type: 'error', error: 'Out of memory', code: 'OUT_OF_MEMORY' })
+        this.dispatch({ type: 'error', error: 'Out of memory', code: 'OUT_OF_MEMORY' })
         break
     }
-  }
-
-  postMessage(msg: WorkerMessageToWorker) {
-    setTimeout(() => this.handleMessage(msg), 0)
   }
 }
 
