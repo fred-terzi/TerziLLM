@@ -640,6 +640,4 @@ npm run preview
 - [ ] Multi-model support (switch models mid-conversation)
 - [ ] Github Copilot SDK integration for development AND AI assistant features
 
-## Tasks & Issues
 
-1. [ ] LLM Web Worker Implementation
