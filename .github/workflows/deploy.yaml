@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - opus_4_6
+      - main
   workflow_dispatch:
 
 permissions:
