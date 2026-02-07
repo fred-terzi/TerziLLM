@@ -1,238 +1,115 @@
-/**
- * ChatContainer - Main chat layout component
- * Contains the header, message list, and input area
- */
+// ============================================================
+// ChatContainer — main chat layout
+// ============================================================
 
-import { useEffect, useRef } from 'react';
-import { Menu, Settings, Loader2 } from 'lucide-react';
-import { MessageList } from './MessageList';
-import { ChatInput } from './ChatInput';
-import { WelcomeScreen } from './WelcomeScreen';
-import { ModelLoadingOverlay } from './ModelLoadingOverlay';
-import { useAppStore } from '../../store';
-import { useChat } from '../../hooks/useChat';
-import { cn } from '../../lib/utils';
-import type { Message as StoreMessage } from '../../types';
-import type { UIMessage } from '@ai-sdk/react';
+import { useEffect } from 'react'
+import { MessageList } from './MessageList'
+import { ChatInput } from './ChatInput'
+import { ErrorDisplay } from '../error/ErrorDisplay'
+import { useAppChat } from '../../hooks/useAppChat'
+import { useAppStore } from '../../store/app-store'
 
 export function ChatContainer() {
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const modelStatus = useAppStore((s) => s.modelStatus)
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+
   const {
-    currentConversationId,
-    messages: storedMessages,
-    modelStatus,
-    loadProgress,
-    loadProgressText,
-    isMobile,
-    inferenceMode,
-    toggleSidebar,
-    setSettingsOpen,
-    addMessage,
-  } = useAppStore();
-
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Convert stored messages to UI messages for the chat hook
-  const initialMessages: UIMessage[] = storedMessages.map((msg) => ({
-    id: msg.id,
-    role: msg.role,
-    parts: [{ type: 'text' as const, text: msg.content }],
-  }));
-
-  // Use the integrated chat hook with worker bridge
-  const {
-    messages: chatMessages,
+    messages,
     input,
     setInput,
-    handleSubmit,
     isLoading,
-    error,
-    workerStatus,
-  } = useChat({
-    inferenceMode,
-    initialMessages,
-    conversationId: currentConversationId || undefined,
-    onFinish: async (message) => {
-      // Persist assistant message to store
-      // Extract text content from parts
-      const content = message.parts
-        .filter((part) => part.type === 'text')
-        .map((part) => (part as { type: 'text'; text: string }).text)
-        .join('');
-      
-      await addMessage({
-        conversationId: currentConversationId || '',
-        role: message.role as 'assistant',
-        content,
-      });
-    },
-    onError: (err) => {
-      console.error('Chat error:', err);
-    },
-  });
+    streamingContent,
+    handleSubmit,
+    stopGeneration,
+    loadMessages,
+  } = useAppChat(currentConversationId)
 
-  // Scroll to bottom when new messages arrive
+  // Load messages when conversation changes
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
-
-  // Sync chat messages to store (for user messages)
-  useEffect(() => {
-    const lastMessage = chatMessages[chatMessages.length - 1];
-    if (lastMessage && lastMessage.role === 'user') {
-      const isAlreadyInStore = storedMessages.some((msg) => msg.id === lastMessage.id);
-      if (!isAlreadyInStore) {
-        // Extract text content from parts
-        const content = lastMessage.parts
-          .filter((part) => part.type === 'text')
-          .map((part) => (part as { type: 'text'; text: string }).text)
-          .join('');
-        
-        void addMessage({
-          conversationId: currentConversationId || '',
-          role: 'user',
-          content,
-        });
-      }
+    if (currentConversationId) {
+      loadMessages(currentConversationId)
     }
-  }, [chatMessages, storedMessages, currentConversationId, addMessage]);
-
-  // Convert UI messages back to store format for display
-  const displayMessages: StoreMessage[] = chatMessages.map((msg, index) => {
-    // Extract text content from parts
-    const content = msg.parts
-      .filter((part) => part.type === 'text')
-      .map((part) => (part as { type: 'text'; text: string }).text)
-      .join('');
-    
-    return {
-      id: msg.id || `msg-${index}`,
-      conversationId: currentConversationId || '',
-      role: msg.role as 'user' | 'assistant' | 'system',
-      content,
-      createdAt: new Date(),
-    };
-  });
-
-  const showWelcome = !currentConversationId && displayMessages.length === 0;
-  const isModelLoading = modelStatus === 'loading';
+  }, [currentConversationId, loadMessages])
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 h-14 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-        <div className="flex items-center gap-3">
-          {/* Mobile menu toggle */}
-          {isMobile && (
-            <button
-              onClick={toggleSidebar}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              aria-label="Toggle sidebar"
-            >
-              <Menu className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            </button>
-          )}
-          
-          <h1 className="font-semibold text-gray-900 dark:text-white">
-            {currentConversationId ? 'Chat' : 'New Chat'}
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Model status indicator */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800">
-            {isModelLoading ? (
-              <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
-            ) : modelStatus === 'ready' ? (
-              <span className="w-2 h-2 rounded-full bg-green-500" />
-            ) : (
-              <span className="w-2 h-2 rounded-full bg-gray-400" />
-            )}
-            <span className="text-xs text-gray-600 dark:text-gray-400 hidden sm:inline">
-              {isModelLoading 
-                ? 'Loading...' 
-                : modelStatus === 'ready' 
-                  ? 'Ready' 
-                  : 'Not loaded'}
-            </span>
-          </div>
-
-          {/* Settings button */}
+    <div className="flex-1 flex flex-col h-full bg-slate-900">
+      {/* Top bar */}
+      <header className="flex items-center gap-3 px-4 py-3 border-b border-slate-700/50 bg-slate-800/50 backdrop-blur-sm">
+        {!sidebarOpen && (
           <button
-            onClick={() => setSettingsOpen(true)}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            aria-label="Settings"
+            onClick={toggleSidebar}
+            className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors text-slate-400 hover:text-white"
+            title="Open sidebar"
+            data-testid="open-sidebar-button"
           >
-            <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
           </button>
+        )}
+
+        <div className="flex-1">
+          <h2 className="text-sm font-medium text-white">
+            {currentConversationId ? 'Chat' : 'TerziLLM'}
+          </h2>
         </div>
+
+        {/* Model status badge */}
+        <ModelStatusBadge />
       </header>
 
-      {/* Main content area */}
-      <div className="flex-1 overflow-hidden relative">
-        {/* Model loading overlay */}
-        {isModelLoading && (
-          <ModelLoadingOverlay
-            progress={loadProgress}
-            text={loadProgressText || 'Initializing...'}
-          />
-        )}
-
-        {/* Welcome screen or messages */}
-        {showWelcome ? (
-          <WelcomeScreen />
-        ) : (
-          <div className="h-full overflow-y-auto">
-            <div className={cn(
-              "max-w-3xl mx-auto px-4 py-6",
-              isMobile && "px-3"
-            )}>
-              <MessageList messages={displayMessages} isLoading={isLoading} />
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Messages */}
+      <MessageList
+        messages={messages}
+        streamingContent={streamingContent}
+        isLoading={isLoading}
+      />
 
       {/* Error display */}
-      {error && (
-        <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 border-t border-red-200 dark:border-red-800">
-          <p className="text-sm text-red-600 dark:text-red-400">
-            {error.message}
-          </p>
-        </div>
-      )}
+      <ErrorDisplay />
 
-      {/* Worker error display */}
-      {workerStatus?.hasError && (
-        <div className="px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-t border-yellow-200 dark:border-yellow-800">
-          <p className="text-sm text-yellow-600 dark:text-yellow-400">
-            Worker status: {workerStatus.status}. Please try reloading the model.
-          </p>
-        </div>
-      )}
-
-      {/* Input area */}
-      <div className={cn(
-        "border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4",
-        isMobile && "p-3"
-      )}>
-        <div className="max-w-3xl mx-auto">
-          <ChatInput
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            isLoading={isLoading}
-            disabled={inferenceMode === 'local' && modelStatus !== 'ready'}
-            placeholder={
-              modelStatus === 'ready'
-                ? 'Send a message...'
-                : modelStatus === 'loading'
-                  ? 'Loading model...'
-                  : 'Load a model from Settings to start chatting'
-            }
-          />
-        </div>
-      </div>
+      {/* Input */}
+      <ChatInput
+        input={input}
+        setInput={setInput}
+        onSubmit={handleSubmit}
+        isLoading={isLoading}
+        onStop={stopGeneration}
+        disabled={modelStatus !== 'ready' || !currentConversationId}
+      />
     </div>
-  );
+  )
+}
+
+// ============================================================
+// Model status indicator badge
+// ============================================================
+
+function ModelStatusBadge() {
+  const modelStatus = useAppStore((s) => s.modelStatus)
+  const modelId = useAppStore((s) => s.modelId)
+  const loadProgress = useAppStore((s) => s.loadProgress)
+  const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
+
+  const statusConfig = {
+    idle: { color: 'bg-slate-500', text: 'No model loaded' },
+    loading: { color: 'bg-yellow-500 animate-pulse', text: `Loading ${Math.round(loadProgress * 100)}%` },
+    ready: { color: 'bg-emerald-500', text: modelId?.split('-').slice(0, 3).join(' ') ?? 'Ready' },
+    error: { color: 'bg-red-500', text: 'Error' },
+  }
+
+  const config = statusConfig[modelStatus]
+
+  return (
+    <button
+      onClick={() => setSettingsOpen(true)}
+      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-700/50 hover:bg-slate-700 transition-colors text-sm"
+      data-testid="model-status-badge"
+    >
+      <div className={`w-2 h-2 rounded-full ${config.color}`} />
+      <span className="text-slate-300">{config.text}</span>
+    </button>
+  )
 }

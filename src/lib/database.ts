@@ -1,206 +1,158 @@
-/**
- * IndexedDB persistence layer for TerziLLM
- * Stores conversations, messages, and settings
- */
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import type { Conversation, Message } from '../types'
 
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Conversation, Message, AppSettings } from '../types';
+// ============================================================
+// IndexedDB Schema
+// ============================================================
 
-// ============================================
-// Database Schema
-// ============================================
-
-interface TerziLLMDB extends DBSchema {
+interface TerziDBSchema extends DBSchema {
   conversations: {
-    key: string;
-    value: Conversation;
-    indexes: { 'by-updated': Date };
-  };
-  messages: {
-    key: string;
-    value: Message;
-    indexes: { 'by-conversation': string };
-  };
-  settings: {
-    key: string;
-    value: unknown;
-  };
-}
-
-const DB_NAME = 'terzillm-db';
-const DB_VERSION = 1;
-
-// ============================================
-// Database Initialization
-// ============================================
-
-let dbInstance: IDBPDatabase<TerziLLMDB> | null = null;
-
-async function getDB(): Promise<IDBPDatabase<TerziLLMDB>> {
-  if (dbInstance) {
-    return dbInstance;
+    key: string
+    value: Conversation
+    indexes: { 'by-updatedAt': Date }
   }
-
-  dbInstance = await openDB<TerziLLMDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      // Conversations store
-      if (!db.objectStoreNames.contains('conversations')) {
-        const conversationStore = db.createObjectStore('conversations', {
-          keyPath: 'id',
-        });
-        conversationStore.createIndex('by-updated', 'updatedAt');
-      }
-
-      // Messages store
-      if (!db.objectStoreNames.contains('messages')) {
-        const messageStore = db.createObjectStore('messages', {
-          keyPath: 'id',
-        });
-        messageStore.createIndex('by-conversation', 'conversationId');
-      }
-
-      // Settings store
-      if (!db.objectStoreNames.contains('settings')) {
-        db.createObjectStore('settings', { keyPath: 'key' });
-      }
-    },
-  });
-
-  return dbInstance;
+  messages: {
+    key: string
+    value: Message
+    indexes: { 'by-conversationId': string }
+  }
+  settings: {
+    key: string
+    value: { key: string; value: unknown }
+  }
 }
 
-// ============================================
-// Conversation Operations
-// ============================================
+const DB_NAME = 'terzillm'
+const DB_VERSION = 1
 
-export async function createConversation(conversation: Conversation): Promise<void> {
-  const db = await getDB();
-  await db.put('conversations', conversation);
+// ============================================================
+// Database singleton
+// ============================================================
+
+let dbPromise: Promise<IDBPDatabase<TerziDBSchema>> | null = null
+
+export function getDB(): Promise<IDBPDatabase<TerziDBSchema>> {
+  if (!dbPromise) {
+    dbPromise = openDB<TerziDBSchema>(DB_NAME, DB_VERSION, {
+      upgrade(db) {
+        // Conversations store
+        const convStore = db.createObjectStore('conversations', { keyPath: 'id' })
+        convStore.createIndex('by-updatedAt', 'updatedAt')
+
+        // Messages store
+        const msgStore = db.createObjectStore('messages', { keyPath: 'id' })
+        msgStore.createIndex('by-conversationId', 'conversationId')
+
+        // Settings store
+        db.createObjectStore('settings', { keyPath: 'key' })
+      },
+    })
+  }
+  return dbPromise
+}
+
+/** Reset the singleton — used in tests to get a fresh DB */
+export function resetDB(): void {
+  dbPromise = null
+}
+
+// ============================================================
+// Conversation operations
+// ============================================================
+
+export async function createConversation(
+  id: string,
+  title: string = 'New conversation',
+): Promise<Conversation> {
+  const db = await getDB()
+  const now = new Date()
+  const conversation: Conversation = {
+    id,
+    title,
+    createdAt: now,
+    updatedAt: now,
+  }
+  await db.put('conversations', conversation)
+  return conversation
 }
 
 export async function getConversation(id: string): Promise<Conversation | undefined> {
-  const db = await getDB();
-  return db.get('conversations', id);
+  const db = await getDB()
+  return db.get('conversations', id)
 }
 
 export async function listConversations(): Promise<Conversation[]> {
-  const db = await getDB();
-  const conversations = await db.getAllFromIndex('conversations', 'by-updated');
-  // Return in reverse order (newest first)
-  return conversations.reverse();
+  const db = await getDB()
+  const all = await db.getAllFromIndex('conversations', 'by-updatedAt')
+  return all.reverse() // newest first
 }
 
 export async function updateConversation(
   id: string,
-  updates: Partial<Omit<Conversation, 'id'>>
+  updates: Partial<Pick<Conversation, 'title'>>,
 ): Promise<void> {
-  const db = await getDB();
-  const existing = await db.get('conversations', id);
-  if (existing) {
-    await db.put('conversations', {
-      ...existing,
-      ...updates,
-      updatedAt: new Date(),
-    });
-  }
+  const db = await getDB()
+  const existing = await db.get('conversations', id)
+  if (!existing) return
+  await db.put('conversations', {
+    ...existing,
+    ...updates,
+    updatedAt: new Date(),
+  })
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  const db = await getDB();
-  
-  // Delete all messages in the conversation
-  const messages = await db.getAllFromIndex('messages', 'by-conversation', id);
-  const tx = db.transaction(['conversations', 'messages'], 'readwrite');
-  
-  await Promise.all([
-    tx.objectStore('conversations').delete(id),
-    ...messages.map((m) => tx.objectStore('messages').delete(m.id)),
-  ]);
-  
-  await tx.done;
+  const db = await getDB()
+  // Delete all messages in conversation
+  const messages = await getMessages(id)
+  const tx = db.transaction(['conversations', 'messages'], 'readwrite')
+  await tx.objectStore('conversations').delete(id)
+  for (const msg of messages) {
+    await tx.objectStore('messages').delete(msg.id)
+  }
+  await tx.done
 }
 
-// ============================================
-// Message Operations
-// ============================================
+// ============================================================
+// Message operations
+// ============================================================
 
 export async function addMessage(message: Message): Promise<void> {
-  const db = await getDB();
-  await db.put('messages', message);
-  
-  // Update conversation's updatedAt
-  const conversation = await db.get('conversations', message.conversationId);
-  if (conversation) {
-    await db.put('conversations', {
-      ...conversation,
-      updatedAt: new Date(),
-    });
+  const db = await getDB()
+  await db.put('messages', message)
+  // Touch conversation's updatedAt
+  const conv = await db.get('conversations', message.conversationId)
+  if (conv) {
+    await db.put('conversations', { ...conv, updatedAt: new Date() })
   }
 }
 
 export async function getMessages(conversationId: string): Promise<Message[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('messages', 'by-conversation', conversationId);
+  const db = await getDB()
+  return db.getAllFromIndex('messages', 'by-conversationId', conversationId)
 }
 
 export async function deleteMessage(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('messages', id);
+  const db = await getDB()
+  await db.delete('messages', id)
 }
 
-// ============================================
-// Settings Operations
-// ============================================
+// ============================================================
+// Settings operations
+// ============================================================
 
 export async function getSetting<T>(key: string): Promise<T | undefined> {
-  const db = await getDB();
-  const result = await db.get('settings', key);
-  return result as T | undefined;
+  const db = await getDB()
+  const row = await db.get('settings', key)
+  return row?.value as T | undefined
 }
 
 export async function setSetting<T>(key: string, value: T): Promise<void> {
-  const db = await getDB();
-  await db.put('settings', { key, value });
+  const db = await getDB()
+  await db.put('settings', { key, value })
 }
 
-export async function getSettings(): Promise<Partial<AppSettings>> {
-  const db = await getDB();
-  const allSettings = await db.getAll('settings');
-  
-  const settings: Record<string, unknown> = {};
-  for (const item of allSettings) {
-    const record = item as { key: string; value: unknown };
-    settings[record.key] = record.value;
-  }
-  
-  return settings as Partial<AppSettings>;
-}
-
-export async function saveSettings(settings: Partial<AppSettings>): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('settings', 'readwrite');
-  
-  const promises = Object.entries(settings).map(([key, value]) =>
-    tx.store.put({ key, value })
-  );
-  
-  await Promise.all(promises);
-  await tx.done;
-}
-
-// ============================================
-// Database Cleanup
-// ============================================
-
-export async function clearAllData(): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction(['conversations', 'messages', 'settings'], 'readwrite');
-  
-  await Promise.all([
-    tx.objectStore('conversations').clear(),
-    tx.objectStore('messages').clear(),
-    tx.objectStore('settings').clear(),
-  ]);
-  
-  await tx.done;
+export async function deleteSetting(key: string): Promise<void> {
+  const db = await getDB()
+  await db.delete('settings', key)
 }

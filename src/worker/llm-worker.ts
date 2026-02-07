@@ -1,312 +1,143 @@
-import * as webllm from "@mlc-ai/web-llm";
+// ============================================================
+// LLM Web Worker — runs WebLLM engine in a background thread
+// ============================================================
 
-// Worker state machine
-type WorkerState = 'idle' | 'loading' | 'ready' | 'generating' | 'error';
+import type {
+  WorkerMessageToWorker,
+  WorkerMessageFromWorker,
+  ChatMessage,
+  GenerateConfig,
+} from '../types'
 
-// Message types from main thread
-interface InitMessage {
-  type: 'init';
-  model: string;
+let engine: import('@mlc-ai/web-llm').MLCEngine | null = null
+let abortController: AbortController | null = null
+
+// Post a typed message back to main thread
+function post(msg: WorkerMessageFromWorker) {
+  self.postMessage(msg)
 }
 
-interface ChatMessage {
-  type: 'chat';
-  messages: webllm.ChatCompletionMessageParam[];
-  config?: webllm.ChatCompletionRequestStreaming;
-}
-
-interface AbortMessage {
-  type: 'abort';
-}
-
-interface RetryMessage {
-  type: 'retry';
-}
-
-interface UnloadMessage {
-  type: 'unload';
-}
-
-type IncomingMessage = InitMessage | ChatMessage | AbortMessage | RetryMessage | UnloadMessage;
-
-// Message types to main thread
-interface InitProgressMessage {
-  type: 'init-progress';
-  progress: number;
-  text: string;
-}
-
-interface InitCompleteMessage {
-  type: 'init-complete';
-  success: boolean;
-  error?: string;
-}
-
-interface ChunkMessage {
-  type: 'chunk';
-  content: string;
-}
-
-interface DoneMessage {
-  type: 'done';
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-}
-
-interface ErrorMessage {
-  type: 'error';
-  error: string;
-  code: string;
-}
-
-interface StatusMessage {
-  type: 'status';
-  state: WorkerState;
-}
-
-type OutgoingMessage = 
-  | InitProgressMessage 
-  | InitCompleteMessage 
-  | ChunkMessage 
-  | DoneMessage 
-  | ErrorMessage 
-  | StatusMessage;
-
-// Worker state
-let state: WorkerState = 'idle';
-let engine: webllm.MLCEngine | null = null;
-let currentModel: string | null = null;
-let abortController: AbortController | null = null;
-
-/**
- * Post a message to the main thread
- */
-function postMessage(message: OutgoingMessage): void {
-  self.postMessage(message);
-}
-
-/**
- * Update worker state and notify main thread
- */
-function setState(newState: WorkerState): void {
-  state = newState;
-  postMessage({ type: 'status', state });
-}
-
-/**
- * Initialize the WebLLM engine with a specific model
- */
-async function initializeEngine(modelId: string): Promise<void> {
-  setState('loading');
-  
+async function handleInit(model: string) {
   try {
-    // Create engine with progress callback
-    engine = new webllm.MLCEngine();
-    
-    engine.setInitProgressCallback((progress) => {
-      postMessage({
+    const { MLCEngine } = await import('@mlc-ai/web-llm')
+
+    engine = new MLCEngine()
+
+    engine.setInitProgressCallback((report) => {
+      post({
         type: 'init-progress',
-        progress: progress.progress,
-        text: progress.text,
-      });
-    });
-    
-    // Reload the model
-    await engine.reload(modelId);
-    
-    currentModel = modelId;
-    setState('ready');
-    
-    postMessage({
-      type: 'init-complete',
-      success: true,
-    });
-  } catch (error) {
-    setState('error');
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    
-    postMessage({
-      type: 'init-complete',
-      success: false,
-      error: errorMessage,
-    });
-    
-    postMessage({
-      type: 'error',
-      error: errorMessage,
-      code: 'INIT_FAILED',
-    });
+        progress: report.progress,
+        text: report.text,
+      })
+    })
+
+    await engine.reload(model)
+
+    post({ type: 'init-complete', success: true })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+
+    let code: WorkerMessageFromWorker & { type: 'error' } extends { code: infer C }
+      ? C
+      : never = 'UNKNOWN'
+
+    if (message.includes('WebGPU') || message.includes('navigator.gpu')) {
+      code = 'WEBGPU_NOT_SUPPORTED'
+    } else if (message.includes('memory') || message.includes('OOM')) {
+      code = 'OUT_OF_MEMORY'
+    } else {
+      code = 'MODEL_LOAD_FAILED'
+    }
+
+    post({ type: 'error', error: message, code })
+    post({ type: 'init-complete', success: false })
   }
 }
 
-/**
- * Handle chat completion request with streaming
- */
-async function handleChat(
-  messages: webllm.ChatCompletionMessageParam[],
-  config?: webllm.ChatCompletionRequestStreaming
-): Promise<void> {
+async function handleChat(messages: ChatMessage[], config?: GenerateConfig) {
   if (!engine) {
-    postMessage({
+    post({
       type: 'error',
-      error: 'Engine not initialized. Call init first.',
-      code: 'ENGINE_NOT_INITIALIZED',
-    });
-    return;
+      error: 'Engine not initialized. Load a model first.',
+      code: 'GENERATION_ERROR',
+    })
+    return
   }
-  
-  if (state !== 'ready') {
-    postMessage({
-      type: 'error',
-      error: `Cannot start chat in state: ${state}`,
-      code: 'INVALID_STATE',
-    });
-    return;
-  }
-  
-  setState('generating');
-  abortController = new AbortController();
-  
+
+  abortController = new AbortController()
+
   try {
-    const completion = await engine.chat.completions.create({
-      messages,
-      stream: true,
-      temperature: config?.temperature ?? 0.7,
-      max_tokens: config?.max_tokens ?? 2048,
-      top_p: config?.top_p ?? 0.9,
-      ...config,
-    });
-    
-    // Stream chunks to main thread
+    const completion = await engine.chat.completions.create(
+      {
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        stream: true,
+        temperature: config?.temperature,
+        top_p: config?.top_p,
+        max_tokens: config?.max_tokens,
+        frequency_penalty: config?.frequency_penalty,
+        presence_penalty: config?.presence_penalty,
+      },
+    )
+
     for await (const chunk of completion) {
-      // Check if aborted
-      if (abortController.signal.aborted) {
-        postMessage({
-          type: 'error',
-          error: 'Generation aborted by user',
-          code: 'ABORTED',
-        });
-        setState('ready');
-        return;
-      }
-      
-      const delta = chunk.choices[0]?.delta?.content;
+      if (abortController.signal.aborted) break
+
+      const delta = chunk.choices[0]?.delta?.content
       if (delta) {
-        postMessage({
-          type: 'chunk',
-          content: delta,
-        });
+        post({ type: 'chunk', content: delta })
       }
     }
-    
-    // Generation complete
-    setState('ready');
-    
-    // Get usage statistics if available
-    // WebLLM may provide usage in different format, so we return undefined for now
-    const usage = undefined;
-    
-    postMessage({
+
+    const usage = await engine.runtimeStatsText()
+    post({
       type: 'done',
-      usage,
-    });
-  } catch (error) {
-    setState('ready');
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    
-    postMessage({
-      type: 'error',
-      error: errorMessage,
-      code: 'GENERATION_FAILED',
-    });
-  } finally {
-    abortController = null;
-  }
-}
-
-/**
- * Abort the current generation
- */
-function handleAbort(): void {
-  if (abortController) {
-    abortController.abort();
-  }
-}
-
-/**
- * Retry initialization after error
- */
-async function handleRetry(): Promise<void> {
-  if (currentModel) {
-    await initializeEngine(currentModel);
-  } else {
-    postMessage({
-      type: 'error',
-      error: 'No model to retry. Call init first.',
-      code: 'NO_MODEL',
-    });
-  }
-}
-
-/**
- * Unload the current model and reset engine
- */
-async function handleUnload(): Promise<void> {
-  try {
-    if (engine) {
-      // WebLLM doesn't have explicit unload, but we can reset the engine
-      engine = null;
-      currentModel = null;
-      setState('idle');
+      usage: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      },
+    })
+  } catch (err) {
+    if (abortController.signal.aborted) {
+      post({ type: 'done' })
+      return
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    postMessage({
-      type: 'error',
-      error: errorMessage,
-      code: 'UNLOAD_FAILED',
-    });
+
+    const message = err instanceof Error ? err.message : String(err)
+    let code: 'OUT_OF_MEMORY' | 'GENERATION_ERROR' = 'GENERATION_ERROR'
+    if (message.includes('memory') || message.includes('OOM')) {
+      code = 'OUT_OF_MEMORY'
+    }
+    post({ type: 'error', error: message, code })
+  } finally {
+    abortController = null
   }
 }
 
-/**
- * Main message handler
- */
-self.onmessage = async (event: MessageEvent<IncomingMessage>) => {
-  const message = event.data;
-  
-  switch (message.type) {
-    case 'init':
-      await initializeEngine(message.model);
-      break;
-      
-    case 'chat':
-      await handleChat(message.messages, message.config);
-      break;
-      
-    case 'abort':
-      handleAbort();
-      break;
-      
-    case 'retry':
-      await handleRetry();
-      break;
-      
-    case 'unload':
-      await handleUnload();
-      break;
-      
-    default:
-      postMessage({
-        type: 'error',
-        error: `Unknown message type: ${(message as { type: string }).type}`,
-        code: 'UNKNOWN_MESSAGE_TYPE',
-      });
+function handleAbort() {
+  if (abortController) {
+    abortController.abort()
   }
-};
+}
 
-// Send initial status
-postMessage({ type: 'status', state: 'idle' });
+// ============================================================
+// Message listener
+// ============================================================
+
+self.onmessage = (e: MessageEvent<WorkerMessageToWorker>) => {
+  const msg = e.data
+  switch (msg.type) {
+    case 'init':
+      handleInit(msg.model)
+      break
+    case 'chat':
+      handleChat(msg.messages, msg.config)
+      break
+    case 'abort':
+      handleAbort()
+      break
+  }
+}

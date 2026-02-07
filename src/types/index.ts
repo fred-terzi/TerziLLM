@@ -1,109 +1,146 @@
-/**
- * Core type definitions for TerziLLM
- */
+// ============================================================
+// Shared Types for TerziLLM
+// ============================================================
 
-// ============================================
-// Conversation & Message Types
-// ============================================
+// --- Database entities ---
+
+export interface Conversation {
+  id: string
+  title: string
+  createdAt: Date
+  updatedAt: Date
+}
 
 export interface Message {
-  id: string;
-  conversationId: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  createdAt: Date;
-  metadata?: MessageMetadata;
+  id: string
+  conversationId: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  createdAt: Date
+  metadata?: MessageMetadata
 }
 
 export interface MessageMetadata {
-  model?: string;
-  tokenUsage?: TokenUsage;
-  generationTime?: number;
+  model?: string
+  tokensUsed?: number
+  promptTokens?: number
+  completionTokens?: number
+  durationMs?: number
+}
+
+// --- Worker message protocol ---
+
+export type WorkerMessageToWorker =
+  | { type: 'init'; model: string }
+  | { type: 'chat'; messages: ChatMessage[]; config?: GenerateConfig }
+  | { type: 'abort' }
+
+export type WorkerMessageFromWorker =
+  | { type: 'init-progress'; progress: number; text: string }
+  | { type: 'init-complete'; success: boolean }
+  | { type: 'chunk'; content: string }
+  | { type: 'done'; usage?: TokenUsage }
+  | { type: 'error'; error: string; code: ErrorCode }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+export interface GenerateConfig {
+  temperature?: number
+  top_p?: number
+  max_tokens?: number
+  frequency_penalty?: number
+  presence_penalty?: number
 }
 
 export interface TokenUsage {
-  promptTokens?: number;
-  completionTokens?: number;
-  totalTokens?: number;
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
 }
 
-export interface Conversation {
-  id: string;
-  title: string;
-  createdAt: Date;
-  updatedAt: Date;
-  model?: string;
-}
+export type ErrorCode =
+  | 'WEBGPU_NOT_SUPPORTED'
+  | 'MODEL_LOAD_FAILED'
+  | 'OUT_OF_MEMORY'
+  | 'GENERATION_ERROR'
+  | 'NETWORK_ERROR'
+  | 'UNKNOWN'
 
-// ============================================
-// Model Types
-// ============================================
+// --- Model definitions ---
+
+export type ModelTier = 'mobile' | 'light' | 'medium' | 'heavy'
 
 export interface ModelInfo {
-  id: string;
-  name: string;
-  size: string;
-  description: string;
-  vram: string;
-  category: 'mobile' | 'light' | 'medium' | 'heavy';
+  id: string
+  name: string
+  tier: ModelTier
+  sizeLabel: string
+  description: string
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
   {
     id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
     name: 'Llama 3.2 1B',
-    size: '~700MB',
+    tier: 'mobile',
+    sizeLabel: '~700MB',
     description: 'Fast, lightweight responses',
-    vram: '2GB',
-    category: 'mobile',
   },
   {
     id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',
     name: 'Llama 3.2 3B',
-    size: '~1.8GB',
-    description: 'Balanced quality/speed',
-    vram: '4GB',
-    category: 'light',
+    tier: 'light',
+    sizeLabel: '~1.8GB',
+    description: 'Balanced quality and speed',
   },
   {
     id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
     name: 'Phi 3.5 Mini',
-    size: '~2.1GB',
-    description: 'Strong reasoning',
-    vram: '4GB',
-    category: 'medium',
+    tier: 'medium',
+    sizeLabel: '~2.1GB',
+    description: 'Strong reasoning ability',
   },
   {
     id: 'Qwen2.5-7B-Instruct-q4f16_1-MLC',
     name: 'Qwen 2.5 7B',
-    size: '~4.5GB',
+    tier: 'heavy',
+    sizeLabel: '~4.5GB',
     description: 'High quality (requires good GPU)',
-    vram: '8GB',
-    category: 'heavy',
   },
-];
+]
 
-// ============================================
-// App State Types
-// ============================================
+// --- App store ---
 
-export type InferenceMode = 'local' | 'remote';
-export type ModelStatus = 'idle' | 'loading' | 'ready' | 'error';
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
+export type ModelStatus = 'idle' | 'loading' | 'ready' | 'error'
+export type InferenceMode = 'local' | 'remote'
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
 
-export interface AppSettings {
-  theme: 'light' | 'dark' | 'system';
-  selectedModel: string;
-  inferenceMode: InferenceMode;
-  hostUrl: string | null;
+export interface AppState {
+  // Inference
+  inferenceMode: InferenceMode
+  modelId: string | null
+  modelStatus: ModelStatus
+  loadProgress: number
+  loadProgressText: string
+  errorMessage: string | null
+  errorCode: ErrorCode | null
+
+  // Conversations
+  currentConversationId: string | null
+  conversations: Conversation[]
+
+  // UI
+  sidebarOpen: boolean
+  settingsOpen: boolean
 }
 
-// ============================================
-// UI State Types
-// ============================================
+// --- Cached model info ---
 
-export interface UIState {
-  sidebarOpen: boolean;
-  settingsOpen: boolean;
-  modelSelectorOpen: boolean;
+export interface CachedModelInfo {
+  modelId: string
+  sizeBytes: number
+  sizeLabel: string
 }

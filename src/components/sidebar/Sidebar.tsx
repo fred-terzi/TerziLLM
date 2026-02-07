@@ -1,116 +1,108 @@
-/**
- * Sidebar - Navigation sidebar with conversation list
- */
+// ============================================================
+// Sidebar — conversation list & navigation
+// ============================================================
 
-import { Plus, X, MessageSquare } from 'lucide-react';
-import { useAppStore } from '../../store';
-import { ConversationItem } from './ConversationItem';
-import { cn } from '../../lib/utils';
+import { useAppStore } from '../../store/app-store'
+import { ConversationItem } from './ConversationItem'
+import { generateId } from '../../lib/utils'
 
 export function Sidebar() {
-  const {
-    conversations,
-    currentConversationId,
-    sidebarOpen,
-    isMobile,
-    createConversation,
-    selectConversation,
-    deleteConversation,
-    setSidebarOpen,
-  } = useAppStore();
+  const conversations = useAppStore((s) => s.conversations)
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+  const createConversation = useAppStore((s) => s.createConversation)
+  const setCurrentConversation = useAppStore((s) => s.setCurrentConversation)
+  const deleteConversation = useAppStore((s) => s.deleteConversation)
+  const updateConversationTitle = useAppStore((s) => s.updateConversationTitle)
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
 
   const handleNewChat = async () => {
-    await createConversation();
-  };
-
-  if (!sidebarOpen) {
-    return null;
+    const id = generateId()
+    await createConversation(id)
   }
 
+  if (!sidebarOpen) return null
+
   return (
-    <>
-      {/* Mobile overlay */}
-      {isMobile && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+    <aside
+      className="w-72 h-full bg-slate-800/80 border-r border-slate-700/50 flex flex-col"
+      data-testid="sidebar"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
+        <h1 className="text-lg font-bold text-white flex items-center gap-2">
+          🧠 TerziLLM
+        </h1>
+        <button
+          onClick={toggleSidebar}
+          className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors text-slate-400 hover:text-white"
+          title="Close sidebar"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
 
-      {/* Sidebar */}
-      <aside
-        className={cn(
-          "flex flex-col bg-gray-900 text-white h-full",
-          isMobile
-            ? "fixed left-0 top-0 z-50 w-80 shadow-xl"
-            : "w-72 border-r border-gray-800"
+      {/* New Chat Button */}
+      <div className="p-3">
+        <button
+          onClick={handleNewChat}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+          data-testid="new-chat-button"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          New Chat
+        </button>
+      </div>
+
+      {/* Conversation List */}
+      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
+        {conversations.length === 0 ? (
+          <div className="text-center text-slate-500 text-sm pt-8">
+            No conversations yet
+          </div>
+        ) : (
+          conversations.map((conv) => (
+            <ConversationItem
+              key={conv.id}
+              conversation={conv}
+              isActive={conv.id === currentConversationId}
+              onSelect={() => setCurrentConversation(conv.id)}
+              onDelete={() => deleteConversation(conv.id)}
+              onRename={(title) => updateConversationTitle(conv.id, title)}
+            />
+          ))
         )}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
-              <MessageSquare className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-semibold">TerziLLM</span>
-          </div>
+      </div>
 
-          {/* Close button (mobile only) */}
-          {isMobile && (
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-              aria-label="Close sidebar"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
-        </div>
-
-        {/* New chat button */}
-        <div className="p-3">
-          <button
-            onClick={handleNewChat}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            <span className="font-medium">New Chat</span>
-          </button>
-        </div>
-
-        {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto px-3 py-2">
-          {conversations.length === 0 ? (
-            <div className="text-center py-8">
-              <MessageSquare className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-              <p className="text-gray-400 text-sm">No conversations yet</p>
-              <p className="text-gray-500 text-xs mt-1">
-                Start a new chat to begin
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {conversations.map((conversation) => (
-                <ConversationItem
-                  key={conversation.id}
-                  conversation={conversation}
-                  isActive={conversation.id === currentConversationId}
-                  onSelect={() => selectConversation(conversation.id)}
-                  onDelete={() => deleteConversation(conversation.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="p-4 border-t border-gray-800">
-          <div className="flex items-center gap-3 text-sm text-gray-400">
-            <div className="w-2 h-2 bg-green-500 rounded-full" />
-            <span>Local inference ready</span>
-          </div>
-        </div>
-      </aside>
-    </>
-  );
+      {/* Footer — Settings */}
+      <div className="border-t border-slate-700/50 p-3">
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50 hover:text-white text-sm transition-colors"
+          data-testid="settings-button"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+          </svg>
+          Settings
+        </button>
+      </div>
+    </aside>
+  )
 }
